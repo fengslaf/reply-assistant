@@ -316,7 +316,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
 
     is_free = access_mode == "free"
     is_local = access_mode == "local_perpetual"
-    is_paid_online = access_mode in {"monthly", "yearly"}
+    is_paid_online = access_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}
     is_free_online = is_free and _has_online_session(state) and not is_paid_online
 
     if is_free and not is_free_online:
@@ -837,7 +837,7 @@ class ProductHomeWindow:
         if self._local_license_payload:
             return
         access_mode = _effective_access_mode(self._state)
-        if access_mode not in {"monthly", "yearly"} and not self._online_client.has_session():
+        if access_mode not in {"monthly", "yearly", "plus_monthly", "plus_yearly"} and not self._online_client.has_session():
             return
 
         self._online_refresh_inflight = True
@@ -1730,6 +1730,8 @@ class ProductHomeWindow:
                 "local_perpetual": "本地永久版",
                 "monthly": "月卡",
                 "yearly": "年卡",
+                "plus_monthly": "Plus月卡",
+                "plus_yearly": "Plus年卡",
             }.get(mode, "本地免费版")
             messagebox.showinfo("关于", f"快捷助手 {VERSION_LABEL.lower()}\n当前状态：{mode_text}")
 
