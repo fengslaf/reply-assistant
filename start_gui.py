@@ -1007,16 +1007,44 @@ class ProductHomeWindow:
         username_var = tk.StringVar(value=self._state.get("display_name") or "")
         password_var = tk.StringVar(value="")
         email_var = tk.StringVar(value="")
+        show_email = tk.BooleanVar(value=False)
+        pwd_show = tk.BooleanVar(value=False)
 
-        for label_text, var, show in [
-            ("用户名 *", username_var, ""),
-            ("密码 *", password_var, "*"),
-            ("邮箱", email_var, ""),
-        ]:
-            row = ttk.Frame(body)
-            row.pack(fill=tk.X, pady=5)
-            ttk.Label(row, text=label_text, width=14).pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=var, width=38, show=show).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 用户名
+        row = ttk.Frame(body)
+        row.pack(fill=tk.X, pady=5)
+        ttk.Label(row, text="用户名 *", width=14).pack(side=tk.LEFT)
+        ttk.Entry(row, textvariable=username_var, width=38).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 密码 + 显示/隐藏
+        row = ttk.Frame(body)
+        row.pack(fill=tk.X, pady=5)
+        ttk.Label(row, text="密码 *", width=14).pack(side=tk.LEFT)
+        pwd_entry = ttk.Entry(row, textvariable=password_var, width=38, show="*")
+        pwd_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def _toggle_pwd():
+            pwd_entry.config(show="" if pwd_show.get() else "*")
+
+        ttk.Checkbutton(row, text="显示", variable=pwd_show, command=_toggle_pwd).pack(side=tk.LEFT, padx=(4, 0))
+
+        # 邮箱（默认隐藏，注册时显示）
+        email_frame = ttk.Frame(body)
+        email_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(email_frame, text="邮箱", width=14).pack(side=tk.LEFT)
+        email_entry = ttk.Entry(email_frame, textvariable=email_var, width=38)
+        email_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def _on_register():
+            if not show_email.get():
+                show_email.set(True)
+                email_frame.pack(fill=tk.X, pady=5)
+                result_label.config(text="请填写邮箱后点击注册", foreground="gray")
+                return
+            run_action("register")
+
+        # 初始隐藏邮箱
+        email_frame.pack_forget()
         result_label = ttk.Label(body, text="", foreground="gray")
         result_label.pack(anchor=tk.W, pady=(0, 8))
 
@@ -1077,7 +1105,7 @@ class ProductHomeWindow:
             self._after_online_login(payload)
 
         ttk.Button(button_row, text="登录并保存", command=lambda: run_action("login")).pack(side=tk.LEFT)
-        ttk.Button(button_row, text="注册账号", command=lambda: run_action("register")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(button_row, text="注册账号", command=_on_register).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(button_row, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=(8, 0))
 
         dialog.transient(self.root)
