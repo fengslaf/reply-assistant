@@ -57,7 +57,7 @@ os.environ['DATABASE_PATH'] = str(_root / 'data' / 'guest_data.db')
 os.environ['VECTOR_STORE_PATH'] = str(_root / 'data' / 'guest_chroma')
 
 
-HOME_ACCESS_MODES = {"free"} if is_public_edition() else {"free", "local_perpetual", "monthly", "yearly"}
+HOME_ACCESS_MODES = {"free"} if is_public_edition() else {"free", "local_perpetual", "monthly", "yearly", "plus_monthly", "plus_yearly"}
 HOME_STATE_FILE_NAME = "product_home_state.json"
 HOME_FREE_SAMPLE_LIMIT = PUBLIC_SAMPLE_LIMIT
 HOME_FREE_CUSTOMER_LIMIT = PUBLIC_CUSTOMER_LIMIT
@@ -183,8 +183,8 @@ def _effective_access_mode(state: Dict[str, str]) -> str:
     """Return the best access_mode across reply and personal systems."""
     reply_mode = (state.get("reply_access_mode") or "free").strip().lower()
     personal_mode = (state.get("personal_access_mode") or "free").strip().lower()
-    # Priority: monthly/yearly > local_perpetual > free
-    for candidate in ("monthly", "yearly", "local_perpetual"):
+    # Priority: plus_yearly/plus_monthly > yearly/monthly > local_perpetual > free
+    for candidate in ("plus_yearly", "plus_monthly", "yearly", "monthly", "local_perpetual"):
         if reply_mode == candidate or personal_mode == candidate:
             return candidate
     return "free"
@@ -197,7 +197,7 @@ def _build_online_status_text(state: Dict[str, str]) -> str:
     if access_mode == "local_perpetual":
         return "本地授权：已激活"
     has_online_session = _has_online_session(state)
-    is_paid_online = _is_paid_subscription_plan(state.get("subscription_plan")) or access_mode in {"monthly", "yearly"}
+    is_paid_online = _is_paid_subscription_plan(state.get("subscription_plan")) or access_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}
     if not has_online_session and not is_paid_online:
         return ""
 
@@ -241,13 +241,13 @@ def _has_online_session(state: Dict[str, str]) -> bool:
 
 
 def _is_paid_subscription_plan(plan: Optional[str]) -> bool:
-    return (plan or "").strip().lower() in {"monthly", "yearly"}
+    return (plan or "").strip().lower() in {"monthly", "yearly", "plus_monthly", "plus_yearly"}
 
 
 def _sync_mode_for_state(state: Dict[str, str]) -> str:
     plan = (state.get("subscription_plan") or "").strip().lower()
     access_mode = _effective_access_mode(state)
-    if _is_paid_subscription_plan(plan) or access_mode in {"monthly", "yearly"}:
+    if _is_paid_subscription_plan(plan) or access_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}:
         return "full"
     if _has_online_session(state):
         return "upload_only"
@@ -812,6 +812,11 @@ class ProductHomeWindow:
         elif subscription_plan in {"monthly", "yearly"}:
             self._state["reply_access_mode"] = subscription_plan
             self._state["personal_access_mode"] = subscription_plan
+            self._state["sync_mode"] = "full"
+        elif subscription_plan in {"plus_monthly", "plus_yearly"}:
+            self._state["reply_access_mode"] = subscription_plan
+            if self._state.get("personal_access_mode") not in {"monthly", "yearly", "plus_monthly", "plus_yearly"}:
+                self._state["personal_access_mode"] = "free"
             self._state["sync_mode"] = "full"
         elif self._state.get("access_token"):
             self._state["reply_access_mode"] = "free"
@@ -1413,7 +1418,7 @@ class ProductHomeWindow:
             mode = (self._state.get("personal_access_mode") or "free").strip().lower()
         else:
             mode = _effective_access_mode(self._state)
-        is_paid_online = mode in {"monthly", "yearly"}
+        is_paid_online = mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}
         dialog = tk.Toplevel(self.root)
         dialog.title("授权管理" if mode == "local_perpetual" else "管理订阅")
         apply_window_icon(dialog)
