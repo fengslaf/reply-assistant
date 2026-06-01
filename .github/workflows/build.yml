@@ -1,0 +1,41 @@
+name: Build Public Client
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller pytest pillow keyboard pystray chromadb sentence-transformers scikit-learn scipy numpy openai wechatpy flask flask-cors cryptography python-dotenv pydantic pyperclip
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Build executable
+        run: python build_exe.py --mode onedir
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reply-assistant-windows
+          path: dist/QuickReplyAssistant/**

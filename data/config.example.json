@@ -1,0 +1,62 @@
+{
+  "local_user_id": null,
+  "created_at": null,
+  "version": "1.0.0",
+  "mode": "local",
+  
+  "scene_configs": {
+    "scene_tags": [
+      "问价格",
+      "回去考虑",
+      "试听后犹豫",
+      "孩子兴趣一般",
+      "已读不回",
+      "沉默唤醒",
+      "约试听",
+      "约复聊"
+    ],
+    "stage_tags": [
+      "新咨询",
+      "问价阶段",
+      "试听前",
+      "试听后",
+      "沉默后再唤醒"
+    ],
+    "quality_scores": [1, 2, 3],
+    "quality_desc": {
+      "1": "普通样本 - 基础可用",
+      "2": "较好样本 - 推荐优先复用",
+      "3": "优秀样本 - 高频复用典型范例"
+    }
+  },
+  
+  "llm_config": {
+    "provider": null,
+    "api_key": null,
+    "api_base": null,
+    "model": null
+  },
+  
+  "cloud_account": null,
+  "cloud_user_id": null,
+  "cloud_token": null,
+  "last_sync_time": null,
+  "sync_enabled": false,
+  
+  "stats": {
+    "total_samples": 0,
+    "total_searches": 0,
+    "total_generations": 0,
+    "total_adoptions": 0,
+    "total_saved_chars": 0,
+    "total_saved_time": 0
+  },
+  
+  "preferences": {
+    "default_scene": null,
+    "default_stage": null,
+    "auto_copy": true,
+    "show_confidence": true,
+    "preview_mode": false
+  }
+}
