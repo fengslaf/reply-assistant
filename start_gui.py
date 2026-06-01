@@ -332,6 +332,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
                     "• Plus年卡 ¥179（含500次AI生成）",
                 ],
                 "primary": "立即升级",
+                "secondary": "查看全部套餐",
                 "show_data_dir": True,
             }
         elif mode == "personal":
@@ -343,6 +344,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
                     "• 年卡 ¥79",
                 ],
                 "primary": "立即升级",
+                "secondary": "查看全部套餐",
                 "show_data_dir": True,
             }
         else:  # combined
@@ -355,6 +357,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
                     "• 客户数据：月卡¥9.9 / 年卡¥79",
                 ],
                 "primary": "立即升级",
+                "secondary": "查看全部套餐",
                 "show_data_dir": True,
             }
         status_text = "👤 当前：未登录（使用本地免费版）"
