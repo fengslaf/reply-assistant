@@ -252,7 +252,7 @@ class PersonalDataMainWindow:
         for col_id, heading_text in headings:
             tree.heading(col_id, text=heading_text, anchor=tk.CENTER)
             width = 150 if col_id == "name" else 130 if col_id == "phone" else 120
-            tree.column(col_id, width=width, minwidth=90, stretch=False, anchor=tk.CENTER)
+            tree.column(col_id, width=width, minwidth=120, stretch=True, anchor=tk.CENTER)
         tree.tag_configure("group_even", background="white", foreground="black")
         tree.tag_configure("group_odd", background="#f7f7f7", foreground="black")
 

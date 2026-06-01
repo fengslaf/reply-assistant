@@ -633,7 +633,7 @@ class ProductHomeWindow:
         footer = ttk.Frame(outer)
         footer.pack(fill=tk.X, pady=(0, 4))
 
-        if model["banner"] and model["banner"].get("show_data_dir"):
+        if model["banner"] and model["banner"].get("show_data_dir") and is_public_edition():
             ttk.Label(
                 footer,
                 text=f"📁 数据目录: {get_app_base_dir() / 'data'}",
