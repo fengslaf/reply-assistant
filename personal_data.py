@@ -166,11 +166,12 @@ class FormatConfig:
 
         # 枚举类型：匹配一个或多个连续的枚举值字符（如"春秋"、"暑秋"、"CD"等）
         if field_type == "enum" and aliases:
-            # 收集所有值的字符（中文+字母）
+            # 收集所有值的字符（中文+字母）+ 全部季节字符（确保冬等未配置的也能匹配）
             all_chars = set()
             for v in aliases.values():
                 all_chars.update(v)
             all_chars.update(aliases.keys())  # 也包含字母缩写
+            all_chars.update(COURSE_STAGE_TOKENS)  # 确保所有季节字都能匹配
             pattern = "[" + "".join(sorted(all_chars)) + "]{1,4}"
 
         return FieldDef(key=key, label=label, field_type=field_type,

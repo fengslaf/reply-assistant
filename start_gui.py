@@ -215,11 +215,6 @@ def _build_online_status_text(state: Dict[str, str]) -> str:
             else:
                 parts.append(f"订阅：{subscription_plan}")
 
-        bound_count = state.get("device_bound_count")
-        device_limit = state.get("device_limit")
-        if bound_count is not None and device_limit is not None:
-            parts.append(f"设备：{bound_count} / {device_limit}")
-
         sync_status = (state.get("sync_status") or "").strip()
         if sync_status:
             parts.append(f"云同步：{sync_status}")
@@ -1530,11 +1525,6 @@ class ProductHomeWindow:
             add_field("账号", "username", self._state.get("display_name") or self._state.get("nickname") or "未登录")
             add_field("套餐", "plan", self._state.get("plan_name") or ("免费版" if mode == "free" else self._state.get("subscription_plan") or mode))
             add_field("到期时间", "ends_at", self._format_end_date(self._state.get("subscription_ends_at") or ""))
-            add_field(
-                "设备",
-                "device_count",
-                f"{self._state.get('device_bound_count', 0)} / {self._state.get('device_limit', 0)}",
-            )
             add_field("云同步", "sync", self._state.get("sync_status") or "未启用")
             add_field("服务器状态", "server_status", self._state.get("server_status_text") or "离线")
             add_field(
@@ -1550,9 +1540,6 @@ class ProductHomeWindow:
                 fields["username"].set(self._state.get("display_name") or self._state.get("nickname") or "未登录")
                 fields["plan"].set(self._state.get("plan_name") or ("免费版" if mode == "free" else self._state.get("subscription_plan") or mode))
                 fields["ends_at"].set(self._format_end_date(self._state.get("subscription_ends_at") or ""))
-                fields["device_count"].set(
-                    f"{self._state.get('device_bound_count', 0)} / {self._state.get('device_limit', 0)}"
-                )
                 fields["sync"].set(self._state.get("sync_status") or "未启用")
                 fields["server_status"].set(self._state.get("server_status_text") or "离线")
                 fields["sync_mode"].set(
