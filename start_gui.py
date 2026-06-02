@@ -78,7 +78,7 @@ def _load_home_state() -> Dict[str, str]:
         "subscription_status": "",
         "subscription_ends_at": "",
         "device_bound_count": 0,
-        "device_limit": 0,
+        "device_limit": 10,
         "sync_status": "",
         "sync_mode": "",
         "plan_type": "",
@@ -828,6 +828,10 @@ class ProductHomeWindow:
         else:
             self._state["sync_mode"] = ""
 
+        # Cap device_limit at 10 (server may return higher values)
+        if self._state.get("device_limit", 0) > 10:
+            self._state["device_limit"] = 10
+
         if persist:
             _save_home_state(self._state)
             self._setup_ui()
@@ -1134,6 +1138,7 @@ class ProductHomeWindow:
         self._state["subscription_ends_at"] = payload.get("subscription_ends_at") or ""
         self._state["device_id"] = payload.get("device_id") or self._state.get("device_id") or generate_device_id()
         self._state["device_name"] = payload.get("device_name") or self._state.get("device_name") or get_device_name()
+        self._state["device_bound_count"] = max(self._state.get("device_bound_count", 0), 1)
         self._state["access_token"] = payload.get("access_token") or ""
         self._state["refresh_token"] = payload.get("refresh_token") or ""
         self._state["expires_at"] = payload.get("expires_at") or ""
@@ -1445,6 +1450,13 @@ class ProductHomeWindow:
     def _show_help(self):
         HelpWindow(self.root)
 
+    @staticmethod
+    def _format_end_date(raw: str) -> str:
+        """Format subscription end date to YYYY-MM-DD only."""
+        if not raw:
+            return "—"
+        return raw[:10] if len(raw) >= 10 else raw
+
     def _show_management(self):
         if is_public_edition():
             return
@@ -1522,8 +1534,7 @@ class ProductHomeWindow:
             online_sync_mode = _sync_mode_for_state(self._state)
             add_field("账号", "username", self._state.get("display_name") or self._state.get("nickname") or "未登录")
             add_field("套餐", "plan", self._state.get("plan_name") or ("免费版" if mode == "free" else self._state.get("subscription_plan") or mode))
-            add_field("状态", "subscription_status", self._state.get("subscription_status") or "unknown")
-            add_field("到期时间", "ends_at", self._state.get("subscription_ends_at") or "—")
+            add_field("到期时间", "ends_at", self._format_end_date(self._state.get("subscription_ends_at") or ""))
             add_field(
                 "设备",
                 "device_count",
@@ -1543,8 +1554,7 @@ class ProductHomeWindow:
             def render_from_state():
                 fields["username"].set(self._state.get("display_name") or self._state.get("nickname") or "未登录")
                 fields["plan"].set(self._state.get("plan_name") or ("免费版" if mode == "free" else self._state.get("subscription_plan") or mode))
-                fields["subscription_status"].set(self._state.get("subscription_status") or "unknown")
-                fields["ends_at"].set(self._state.get("subscription_ends_at") or "—")
+                fields["ends_at"].set(self._format_end_date(self._state.get("subscription_ends_at") or ""))
                 fields["device_count"].set(
                     f"{self._state.get('device_bound_count', 0)} / {self._state.get('device_limit', 0)}"
                 )
@@ -1684,7 +1694,7 @@ class ProductHomeWindow:
                 threading.Thread(target=worker, daemon=True).start()
 
             ttk.Button(wechat_button_row, text="刷新状态", command=refresh_wechat_status).pack(side=tk.LEFT)
-            ttk.Button(wechat_button_row, text="获取验证码", command=request_wechat_code).pack(side=tk.LEFT, padx=(8, 0))
+            ttk.Button(wechat_button_row, text="绑定微信（获取验证码）", command=request_wechat_code).pack(side=tk.LEFT, padx=(8, 0))
             ttk.Button(wechat_button_row, text="解绑微信", command=unbind_wechat).pack(side=tk.LEFT, padx=(8, 0))
 
             button_row = ttk.Frame(body)
@@ -1734,7 +1744,6 @@ class ProductHomeWindow:
                 dialog.destroy()
                 self._logout_and_clear_online()
 
-            ttk.Button(button_row, text="关闭", command=dialog.destroy).pack(side=tk.LEFT)
             render_from_state()
             refresh_online()
             refresh_wechat_status()
