@@ -33,7 +33,7 @@ from gui_utils import (
 
 from personal_data import (
     PersonalDataManager, parse_personal_record, get_personal_data_format_example,
-    get_format_config_line, save_format_config,
+    get_personal_data_example_text, get_format_config_line, save_format_config,
 )
 
 
@@ -358,7 +358,7 @@ class PersonalDataMainWindow:
         ttk.Label(favorite_win, text=get_personal_data_format_example()).pack(anchor=tk.W, padx=10, pady=(10, 6))
         raw_text = tk.Text(favorite_win, height=8, wrap=tk.WORD)
         raw_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
-        raw_text.insert(tk.END, "李某某三年级13777778777春秋数学提分A班")
+        raw_text.insert(tk.END, get_personal_data_example_text())
 
         type_row = ttk.Frame(favorite_win)
         type_row.pack(fill=tk.X, padx=10, pady=(0, 8))

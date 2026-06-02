@@ -270,14 +270,46 @@ def save_format_config(format_line: str) -> FormatConfig:
 
 def get_personal_data_format_example() -> str:
     """根据当前解析规则生成数据格式示例。修改解析规则时自动同步。"""
-    example_parts = []
-    example_parts.append("姓名")
-    example_parts.append("电话")
-    example_parts.append("年级")
-    example_parts.append("季节")
-    example_parts.append("科目")
-    example_parts.append("班型")
-    return "格式：" + "，".join(example_parts)
+    config = get_format_config()
+    parts = []
+    for field_def in config.fields:
+        parts.append(field_def.label)
+    return "格式：" + "，".join(parts)
+
+
+def get_personal_data_example_text() -> str:
+    """根据当前解析规则生成一条示例数据文本。"""
+    config = get_format_config()
+    # 为每种字段类型生成示例值
+    example_values = {
+        "name": "李某某", "客户姓名": "王芳", "姓名": "李某某",
+        "phone": "13777778777", "电话": "13777778777", "手机": "13777778777",
+        "grade": "三年级", "年级": "三年级",
+        "season": "春秋", "季节": "春秋",
+        "subject": "数学", "科目": "数学",
+        "class_type": "提分A班", "班型": "提分A班",
+        "微信": "liming_2024",
+        "性别": "男", "年龄区间": "26-35", "所在城市": "杭州",
+        "职业": "互联网运营", "意向产品/服务": "年度私教套餐",
+        "预算区间": "500-1000", "客户来源": "转介绍", "跟进状态": "有意向",
+        "首次接触日期": "2025-05-20", "最近联系日期": "2025-05-28",
+        "下次跟进日期": "2025-06-05",
+        "需求类型": "买房", "意向区域": "成都高新区", "预算总价": "220",
+        "户型需求": "三室", "面积需求": "95-110", "特殊要求": "近地铁",
+        "带看记录": "2025-05-15看了绿地之窗",
+        "意向品牌/车型": "比亚迪宋PLUS", "购车预算": "15",
+        "购车用途": "家用", "付款方式": "贷款", "是否置换": "否",
+        "旧车信息": "2016款朗逸", "驾照年限": "8年", "意向颜色": "白色",
+    }
+    parts = []
+    for field_def in config.fields:
+        val = example_values.get(field_def.key, field_def.label)
+        if field_def.type == "enum" and field_def.values:
+            val = field_def.values[0]
+            if field_def.aliases:
+                val = list(field_def.aliases.values())[0]
+        parts.append(val)
+    return "".join(parts)
 
 
 def _iso_now() -> str:
