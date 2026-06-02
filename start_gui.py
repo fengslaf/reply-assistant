@@ -78,7 +78,7 @@ def _load_home_state() -> Dict[str, str]:
         "subscription_status": "",
         "subscription_ends_at": "",
         "device_bound_count": 0,
-        "device_limit": 10,
+        "device_limit": 0,
         "sync_status": "",
         "sync_mode": "",
         "plan_type": "",
@@ -828,10 +828,6 @@ class ProductHomeWindow:
         else:
             self._state["sync_mode"] = ""
 
-        # Cap device_limit at 10 (server may return higher values)
-        if self._state.get("device_limit", 0) > 10:
-            self._state["device_limit"] = 10
-
         if persist:
             _save_home_state(self._state)
             self._setup_ui()
@@ -1138,7 +1134,6 @@ class ProductHomeWindow:
         self._state["subscription_ends_at"] = payload.get("subscription_ends_at") or ""
         self._state["device_id"] = payload.get("device_id") or self._state.get("device_id") or generate_device_id()
         self._state["device_name"] = payload.get("device_name") or self._state.get("device_name") or get_device_name()
-        self._state["device_bound_count"] = max(self._state.get("device_bound_count", 0), 1)
         self._state["access_token"] = payload.get("access_token") or ""
         self._state["refresh_token"] = payload.get("refresh_token") or ""
         self._state["expires_at"] = payload.get("expires_at") or ""
