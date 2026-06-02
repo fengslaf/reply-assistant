@@ -548,80 +548,277 @@ def parse_personal_record(raw_text: str, recorded_at: Optional[str] = None, reco
     }
 
 
-def _parse_concatenated(raw_text: str, expanded_text: str, config, recorded_at: str, record_type: str) -> Dict:
-    """回退解析器：处理无逗号的连写格式（如教育领域的连写输入）。
+def _tokenize_concatenated(text: str) -> List[str]:
+    """将无分隔符的连写文本按类型边界切分为 token 列表。
     
-    策略（针对 education 连写格式优化）：
-    1. 提取手机号（11位数字，最明确的模式）
-    2. 提取年级（X年级/初X/高X）
-    3. 提取科目（已知科目列表匹配）
-    4. 提取姓名（智能2/3字判断）
-    5. 从剩余文本中提取季节（连续季节字符序列）
-    6. 剩余归入 class_type
+    切分规则：
+    - 中文 ↔ 英文/下划线 ↔ 数字 之间的边界
+    - 下划线连接的英文+数字保持为一个 token（如 liming_2024）
+    - 数字-数字（如 18-25）保持为一个 token
+    - 中文 token 进一步按已知模式切分（年级、科目、季节等）
+    
+    示例：
+    "李某某13777778777liming_2024男18-25杭州" 
+    → ["李某某", "13777778777", "liming_2024", "男", "18-25", "杭州"]
     """
-    compact_text = _compact_text(expanded_text)
-    matched: Dict[str, str] = {}
-    remaining = compact_text
+    if not text:
+        return []
 
-    # ── 第一轮：提取手机号 ──
-    phone_match = re.search(r"1\d{10}", remaining)
-    if phone_match:
-        matched["phone"] = phone_match.group(0)
-        remaining = remaining[:phone_match.start()] + remaining[phone_match.end():]
+    def _char_type(c: str) -> str:
+        if '\u4e00' <= c <= '\u9fff':
+            return "cn"
+        if c.isdigit():
+            return "dig"
+        if c.isascii() and (c.isalpha() or c == '_'):
+            return "en"
+        return "other"
 
-    # ── 第二轮：提取年级 ──
+    # 第一步：按类型边界切分，下划线连接的英文+数字保持为一个 token
+    raw_tokens: List[str] = []
+    current = text[0]
+    current_type = _char_type(text[0])
+    for c in text[1:]:
+        ct = _char_type(c)
+        # 下划线连接：保持同一 token，更新 current_type
+        if c == '_' or current.endswith('_'):
+            current += c
+            current_type = ct
+            continue
+        # 短英文嵌入中文：cn→en(1-2 char)→cn 保持同一 token
+        # 如 "提分A班" 不拆分
+        if current_type == "cn" and ct == "en":
+            # 看后面是否紧跟中文（peek）
+            pos = text.index(c) if c in text else -1
+            if pos >= 0 and pos + 1 < len(text) and _char_type(text[pos + 1]) == "cn":
+                current += c
+                # 保持 current_type 为 "cn"，这样后续中文不会拆分
+                continue
+        if ct != current_type:
+            raw_tokens.append(current)
+            current = c
+            current_type = ct
+        else:
+            current += c
+    raw_tokens.append(current)
+
+    # 第二步：合并 "数字-数字" 和 "数字-数字-数字" 模式（如 18-25, 2025-05-20）
+    merged: List[str] = []
+    i = 0
+    while i < len(raw_tokens):
+        token = raw_tokens[i]
+        # 尝试合并 "数字-数字[-数字]" 模式（日期或范围）
+        if re.fullmatch(r'\d+', token) and i + 2 < len(raw_tokens) and raw_tokens[i + 1] == '-':
+            combined = token
+            j = i + 1
+            while j + 1 < len(raw_tokens) and raw_tokens[j] == '-' and re.fullmatch(r'\d+', raw_tokens[j + 1]):
+                combined += raw_tokens[j] + raw_tokens[j + 1]
+                j += 2
+            merged.append(combined)
+            i = j
+        else:
+            merged.append(token)
+            i += 1
+
+    # 第三步：长 token 按已知模式切分（中文或含嵌入英文的中文 token）
+    result: List[str] = []
+    for token in merged:
+        is_cn_dominant = re.match(r'[\u4e00-\u9fff]', token) and len(token) > 3
+        if is_cn_dominant:
+            sub_tokens = _split_chinese_token(token)
+            result.extend(sub_tokens)
+        else:
+            result.append(token)
+    return result
+
+
+def _split_chinese_token(text: str) -> List[str]:
+    """将长中文 token 按已知模式切分为子 token。"""
+    parts: List[str] = []
+    remaining = text
+
+    # 年级模式
     grade_match = re.search(r"(?:[1-6]年级|[一二三四五六]年级|初[一二三]|高[一二三])", remaining)
     if grade_match:
-        matched["grade"] = grade_match.group(0)
-        remaining = remaining[:grade_match.start()] + remaining[grade_match.end():]
+        if grade_match.start() > 0:
+            parts.append(remaining[:grade_match.start()])
+        parts.append(grade_match.group(0))
+        remaining = remaining[grade_match.end():]
 
-    # ── 第三轮：提取科目（已知科目列表，最长匹配优先）──
-    if any(f.key == "subject" for f in config.fields):
+    # 科目模式
+    if remaining:
         subject_match = SUBJECT_PATTERN.search(remaining)
         if subject_match:
-            matched["subject"] = subject_match.group(0)
-            remaining = remaining[:subject_match.start()] + remaining[subject_match.end():]
+            if subject_match.start() > 0:
+                parts.append(remaining[:subject_match.start()])
+            parts.append(subject_match.group(0))
+            remaining = remaining[subject_match.end():]
 
-    # ── 第四轮：提取姓名（智能 2/3 字判断）──
+    # 季节模式
     if remaining:
-        name_3 = re.match(r'[\u4e00-\u9fff]{3}', remaining)
-        name_2 = re.match(r'[\u4e00-\u9fff]{2}', remaining)
-        chosen_name = ""
-        _CLASS_TYPE_STARTERS = set("提思基精冲培辅训奥新强优")
-        if name_3 and name_2:
-            third_char = remaining[2]
-            if third_char in _CLASS_TYPE_STARTERS:
-                chosen_name = name_2.group(0)
-            else:
-                chosen_name = name_3.group(0)
-        elif name_3:
-            chosen_name = name_3.group(0)
-        elif name_2:
-            chosen_name = name_2.group(0)
-        if chosen_name:
-            matched["name"] = chosen_name
-            remaining = remaining[len(chosen_name):]
-
-    # ── 第五轮：提取季节（连续季节字符序列，1-4个）──
-    if remaining and any(f.key == "season" for f in config.fields):
-        season_match = re.match(r'[ABCD春夏秋冬寒]{1,4}', remaining)
+        season_match = re.match(r'[春夏秋冬寒]{1,4}', remaining)
         if season_match:
-            matched["season"] = season_match.group(0)
+            parts.append(season_match.group(0))
             remaining = remaining[season_match.end():]
 
-    # ── 第六轮：剩余文本归入 class_type ──
-    for field_def in config.fields:
-        if field_def.key not in matched and remaining.strip():
-            matched[field_def.key] = remaining.strip()
-            remaining = ""
-            break
+    # 剩余中文
+    if remaining:
+        parts.append(remaining)
+
+    return [p for p in parts if p]
+
+
+def _parse_concatenated(raw_text: str, expanded_text: str, config, recorded_at: str, record_type: str) -> Dict:
+    """通用回退解析器：处理无逗号的连写输入。
+    
+    策略：
+    1. 按类型边界（中文↔英文↔数字）切分为 token 列表
+    2. 按类型特征匹配 token 到字段：手机号→日期→枚举→数字→姓名→文本
+    3. 剩余 token 按顺序填入未匹配的文本字段
+    """
+    compact_text = _compact_text(expanded_text)
+    tokens = _tokenize_concatenated(compact_text)
+    matched: Dict[str, str] = {}
+    used: set = set()
+    fields = config.fields
+
+    # ── 预处理：拆分长中文 token 中的枚举值 ──
+    # 如 "广告新线索" → ["广告", "新线索"]（在匹配前完成，避免索引失效）
+    enum_prefixes: List[tuple] = []
+    for f in fields:
+        if f.type == "enum":
+            alias_vals = set((f.aliases or {}).values())
+            for val in sorted((f.values or []) + list(alias_vals), key=len, reverse=True):
+                enum_prefixes.append((val, f.key, f.expand_value(val)))
+
+    expanded_tokens: List[str] = []
+    for token in tokens:
+        if not re.fullmatch(r'[\u4e00-\u9fff]+', token) or len(token) <= 2:
+            expanded_tokens.append(token)
+            continue
+        remaining_cn = token
+        parts: List[str] = []
+        temp_matched: Dict[str, str] = {}
+        while remaining_cn:
+            found = False
+            for val, key, expanded in enum_prefixes:
+                if key not in temp_matched and remaining_cn.startswith(val):
+                    temp_matched[key] = expanded
+                    parts.append(val)
+                    remaining_cn = remaining_cn[len(val):]
+                    found = True
+                    break
+            if not found:
+                break
+        if parts:
+            if remaining_cn:
+                parts.append(remaining_cn)
+            expanded_tokens.extend(parts)
+        else:
+            expanded_tokens.append(token)
+    tokens = expanded_tokens
+
+    # 收集所有枚举值
+    all_enum_values: set = set()
+    for f in fields:
+        if f.type == "enum":
+            all_enum_values.update(f.values or [])
+            all_enum_values.update((f.aliases or {}).values())
+
+    # ── 第一轮：按类型特征匹配 token ──
+    for i, token in enumerate(tokens):
+        if i in used:
+            continue
+
+        # 手机号：1开头11位数字
+        if re.fullmatch(r"1\d{10}", token):
+            for f in fields:
+                if f.key not in matched and f.key in ("phone", "手机", "电话"):
+                    matched[f.key] = token
+                    used.add(i)
+                    break
+            continue
+
+        # 日期：YYYY-MM-DD 或 YYYY/MM/DD
+        if re.fullmatch(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", token):
+            for f in fields:
+                if f.key not in matched and (f.type == "date" or "日期" in f.label):
+                    matched[f.key] = token
+                    used.add(i)
+                    break
+            continue
+
+        # 枚举值：检查是否匹配某个未填充的枚举字段
+        for f in fields:
+            if f.key not in matched and f.type == "enum":
+                alias_vals = set((f.aliases or {}).values())
+                if (token in (f.values or [])
+                        or token in alias_vals
+                        or (len(token) > 1 and all(c in (f.values or []) or c in alias_vals for c in token))):
+                    matched[f.key] = f.expand_value(token)
+                    used.add(i)
+                    break
+        if i in used:
+            continue
+
+        # 数字：纯数字或小数，优先匹配数值类字段
+        if re.fullmatch(r"\d+(\.\d+)?", token):
+            for f in fields:
+                if f.key not in matched and f.type == "number":
+                    matched[f.key] = token
+                    used.add(i)
+                    break
+            if i not in used:
+                for f in fields:
+                    if f.key not in matched and f.type == "text":
+                        matched[f.key] = token
+                        used.add(i)
+                        break
+            continue
+
+    # ── 第二轮：提取姓名（连续中文字符，在数字/英文之前的开头位置）──
+    if any(f.key == "name" or f.key == "客户姓名" for f in fields) and "name" not in matched and "客户姓名" not in matched:
+        # 找到第一个中文 token
+        for i, token in enumerate(tokens):
+            if i in used:
+                continue
+            if re.fullmatch(r'[\u4e00-\u9fff]+', token) and 2 <= len(token) <= 6:
+                # 在 name 字段中记录
+                name_key = "name"
+                for f in fields:
+                    if f.key == "客户姓名":
+                        name_key = "客户姓名"
+                        break
+                matched[name_key] = token
+                used.add(i)
+                break
+
+    # ── 第四轮：剩余 token 按顺序填入未匹配的文本字段 ──
+    available_text = [f for f in fields if f.key not in matched and f.type == "text"]
+    text_idx = 0
+    for i, token in enumerate(tokens):
+        if not token:
+            continue
+        # 跳过已匹配的 token
+        if token in [matched.get(f.key) for f in fields if f.key in matched]:
+            continue
+        # 跳过纯数字 token
+        if re.fullmatch(r"\d+(\.\d+)?", token):
+            continue
+        # 跳过已知的非文本 token（手机号、日期等）
+        if re.fullmatch(r"1\d{10}", token):
+            continue
+        if re.fullmatch(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", token):
+            continue
+        if text_idx < len(available_text):
+            matched[available_text[text_idx].key] = token
+            text_idx += 1
 
     # 确保所有字段都有值
-    for f in config.fields:
+    for f in fields:
         if f.key not in matched:
             matched[f.key] = ""
 
-    name = matched.get("name", "")
+    name = matched.get("name", matched.get("客户姓名", ""))
     phone = matched.get("phone", matched.get("手机", matched.get("电话", "")))
     grade = _normalize_grade(matched.get("grade", ""))
 
