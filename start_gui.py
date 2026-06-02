@@ -404,7 +404,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
             f"样本：∞ / {reply_samples} 条",
             "云端同步：不可用",
         ]
-    elif reply_mode in {"monthly", "yearly"}:
+    elif reply_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}:
         reply_lines = [
             "状态：完整版（已解锁）",
             f"样本：∞ / {reply_samples} 条",
@@ -424,7 +424,7 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
             "报名套餐：本地授权",
             "云端同步：不可用",
         ]
-    elif personal_mode in {"monthly", "yearly"}:
+    elif personal_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}:
         personal_lines = [
             "状态：完整版（已解锁）",
             f"客户：{personal_records}人",
@@ -1116,9 +1116,15 @@ class ProductHomeWindow:
         if is_public_edition():
             return
         subscription_plan = str(payload.get("subscription_plan") or "free").strip().lower()
-        is_paid_plan = subscription_plan in {"monthly", "yearly"}
+        is_paid_plan = subscription_plan in {"monthly", "yearly", "plus_monthly", "plus_yearly"}
+        is_plus_plan = subscription_plan in {"plus_monthly", "plus_yearly"}
         self._state["reply_access_mode"] = subscription_plan if is_paid_plan else "free"
-        self._state["personal_access_mode"] = subscription_plan if is_paid_plan else "free"
+        self._state["personal_access_mode"] = subscription_plan if is_paid_plan and not is_plus_plan else ("free" if not is_paid_plan else self._state.get("personal_access_mode") or "free")
+        # Plus only applies to reply system; personal stays at its previous level or free
+        if is_plus_plan:
+            self._state["reply_access_mode"] = subscription_plan
+            if self._state.get("personal_access_mode") not in {"monthly", "yearly", "local_perpetual"}:
+                self._state["personal_access_mode"] = "free"
         self._state["server_status_text"] = "已连接"
         self._state["subscription_plan"] = subscription_plan if subscription_plan else ("monthly" if is_paid_plan else "free")
         subscription_status = str(payload.get("subscription_status") or "").strip()

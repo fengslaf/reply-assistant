@@ -320,7 +320,18 @@ class LocalMainWindow:
         
         reset_ttkbootstrap_style()
         self.root = root
-        self.root.title(f"快捷回复助手 - 本地模式 ({user_id})")
+        # 根据 access_mode 动态显示窗口标题
+        state = self.preview_manager._state if hasattr(self.preview_manager, '_state') else {}
+        _am = state.get('reply_access_mode', 'free')
+        if _am in ('plus_monthly', 'plus_yearly'):
+            _mode_label = "Plus专业版"
+        elif _am in ('monthly', 'yearly'):
+            _mode_label = "专业版"
+        elif _am == 'local_perpetual':
+            _mode_label = "本地永久版"
+        else:
+            _mode_label = "本地免费版"
+        self.root.title(f"快捷回复助手 - {_mode_label} ({user_id})")
         self.root.geometry("750x650")
         apply_window_icon(self.root)
         apply_native_ttk_theme(self.root)
@@ -360,9 +371,21 @@ class LocalMainWindow:
         header_frame.pack(fill=tk.X, padx=14, pady=(8, 6))
         header_frame.columnconfigure(1, weight=1)
         
+        # 根据 access_mode 动态显示状态
+        state = self.preview_manager._state if hasattr(self.preview_manager, '_state') else {}
+        access_mode = state.get('reply_access_mode', 'free')
+        if access_mode in ('plus_monthly', 'plus_yearly'):
+            mode_text = "Plus专业版"
+        elif access_mode in ('monthly', 'yearly'):
+            mode_text = "专业版"
+        elif access_mode == 'local_perpetual':
+            mode_text = "本地永久版"
+        else:
+            mode_text = "本地免费版"
+
         ttk.Label(
             header_frame,
-            text="本地模式：离线数据匹配",
+            text=f"{mode_text}：在线状态",
             font=("Arial", 11),
         ).grid(row=0, column=0, sticky="w")
 
