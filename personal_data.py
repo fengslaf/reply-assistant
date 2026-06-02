@@ -110,18 +110,31 @@ class FormatConfig:
     """
     解析一行格式配置，生成字段定义。
 
-    配置格式：姓名，电话，年级，季节（ABCD），科目，班型
+    配置格式：姓名，电话，性别（男/女/未知），年龄区间（18-25/26-35/36-45/45+）
     - 每个字段用中文逗号分隔
     - 括号内的内容是类型提示：
       - （ABCD）→ 枚举类型，字母可映射为汉字
-      - 其他 → 暂不处理，视为普通文本
+      - （男/女/未知）→ 枚举类型，斜杠分隔的选项
+      - （18-25/26-35）→ 枚举类型，区间选项
+      - 其他 → 视为普通文本
     """
 
     FIELD_PATTERNS = {
         "电话": (r"1\d{10}", "text"),
+        "手机": (r"1\d{10}", "text"),
         "年级": (r"(?:[1-6]年级|[一二三四五六]年级|初[一二三]|高[一二三])", "text"),
         "姓名": (r"[\u4e00-\u9fff]{2,6}", "text"),
-        "科目": (None, "text"),  # 使用 SUBJECT_PATTERN 动态生成
+        "客户姓名": (r"[\u4e00-\u9fff]{2,6}", "text"),
+        "日期": (r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", "date"),
+        "首次接触日期": (r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", "date"),
+        "最近联系日期": (r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", "date"),
+        "下次跟进日期": (r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", "date"),
+        "购车预算": (r"\d+(\.\d+)?", "number"),
+        "预算总价": (r"\d+(\.\d+)?", "number"),
+        "预算区间": (r"\d+[-/]\d+", "text"),  # range like "500-1000" is text, not number
+        "驾照年限": (r"\d+年?", "number"),
+        "面积需求": (r"\d+[-~]?\d*(㎡)?", "text"),  # "95-110" is text
+        "年龄区间": (r"\d+[-/]\d+", "text"),  # "26-35" is text
     }
 
     DEFAULT_ALIASES = {"A": "寒", "B": "春", "C": "暑", "D": "秋"}
@@ -143,36 +156,46 @@ class FormatConfig:
         values: List[str] = []
         aliases: Dict[str, str] = {}
 
-        # 检查是否有括号提示：季节（ABCD）
+        # 检查是否有括号提示：季节（ABCD）或 性别（男/女/未知）
         paren_match = re.match(r"^(.+?)（(.+?)）$", part)
         if paren_match:
             label = paren_match.group(1)
             hint = paren_match.group(2)
-            # 判断是枚举（全大写字母）还是其他
+            # 判断是枚举（全大写字母ABCD）还是斜杠分隔的选项
             if hint.isalpha() and hint.isupper():
+                # 字母枚举：ABCD → A=寒, B=春, C=暑, D=秋
                 field_type = "enum"
                 values = list(hint)
                 aliases = {c: self.DEFAULT_ALIASES.get(c, c) for c in hint}
+            elif "/" in hint:
+                # 斜杠分隔的选项：男/女/未知
+                field_type = "enum"
+                values = [v.strip() for v in hint.split("/") if v.strip()]
+                aliases = {v: v for v in values}
+
+        # Check label against FIELD_PATTERNS for type hints (e.g. date, number)
+        if label in self.FIELD_PATTERNS:
+            pattern, field_type_from_name = self.FIELD_PATTERNS[label]
+            if not paren_match:  # only override if no parenthetical hint
+                field_type = field_type_from_name
+        else:
+            pattern = ""
 
         # 生成 snake_case key
         key = self._label_to_key(label)
 
-        # 根据字段名选择正则模式
-        pattern = ""
-        if label in self.FIELD_PATTERNS:
-            pattern, _ = self.FIELD_PATTERNS[label]
-        if not pattern and label == "科目":
-            pattern = "|".join(sorted((re.escape(s) for s in SUBJECTS), key=len, reverse=True))
-
-        # 枚举类型：匹配一个或多个连续的枚举值字符（如"春秋"、"暑秋"、"CD"等）
+        # 枚举类型：构建匹配模式
         if field_type == "enum" and aliases:
-            # 收集所有值的字符（中文+字母）+ 全部季节字符（确保冬等未配置的也能匹配）
-            all_chars = set()
-            for v in aliases.values():
-                all_chars.update(v)
-            all_chars.update(aliases.keys())  # 也包含字母缩写
-            all_chars.update(COURSE_STAGE_TOKENS)  # 确保所有季节字都能匹配
-            pattern = "[" + "".join(sorted(all_chars)) + "]{1,4}"
+            # 判断是单字符枚举（ABCD）还是多字符枚举（男/女/未知、18-25/26-35等）
+            all_values = list(aliases.keys()) + list(aliases.values())
+            if all(len(v) == 1 for v in all_values):
+                # 单字符枚举：用字符类 [ABCD春夏秋冬寒]
+                all_chars = set(all_values)
+                pattern = "[" + "".join(sorted(all_chars)) + "]{1,4}"
+            else:
+                # 多字符枚举：用交替匹配 (?:男|女|未知)
+                escaped = [re.escape(v) for v in values]
+                pattern = "(?:" + "|".join(escaped) + ")"
 
         return FieldDef(key=key, label=label, field_type=field_type,
                         pattern=pattern, values=values, aliases=aliases)
@@ -312,78 +335,153 @@ def compute_display_grade(recorded_grade: str, recorded_at: str, as_of: Optional
 
 
 def parse_personal_record(raw_text: str, recorded_at: Optional[str] = None, record_type: str = "student_profile") -> Dict:
-    """配置驱动的通用解析器。根据 FormatConfig 定义的字段自动提取数据。"""
+    """配置驱动的智能解析器。根据 FormatConfig 定义的字段自动提取数据。
+    
+    解析策略（支持跳过字段 + 混合格式）：
+    1. 按中文逗号切分输入
+    2. 第一轮：按位置匹配，但文本字段会检查是否更匹配后续枚举字段
+    3. 第二轮：剩余未匹配的段，按类型特征智能分配
+    4. 第三轮：剩余的文本段按顺序填入未匹配的文本字段
+    5. 无逗号输入：回退到正则模式匹配
+    """
     recorded_at = _ensure_iso(recorded_at)
     expanded_text = _expand_season_letters(raw_text)
-    compact_text = _compact_text(expanded_text)
     config = get_format_config()
 
-    # 按配置逐字段匹配（优先匹配有明确模式的字段，再匹配姓名）
+    # 按中文逗号切分输入
+    segments = [s.strip() for s in re.split(r'[，,]', expanded_text) if s.strip()]
+
+    # 如果没有逗号分隔（如教育领域的连写格式），回退到正则模式匹配
+    if len(segments) <= 1:
+        return _parse_concatenated(raw_text, expanded_text, config, recorded_at, record_type)
+
     matched: Dict[str, str] = {}
-    remaining = compact_text
+    used: set = set()  # 已使用的段索引
+    skipped_by_enum: set = set()  # 在第一轮因枚举值冲突而被跳过的文本字段key
+    fields = config.fields
 
-    # 第一轮：匹配有明确模式的字段（电话、年级、科目、季节等）
-    for field_def in config.fields:
-        if field_def.pattern and field_def.key != "name":
-            raw_value = field_def.match(remaining)
-            if raw_value:
-                matched[field_def.key] = field_def.expand_value(raw_value)
-                remaining = remaining.replace(raw_value, "", 1)
+    # 收集所有枚举值，用于判断文本段是否更匹配枚举字段
+    all_enum_values: set = set()
+    for f in fields:
+        if f.type == "enum":
+            all_enum_values.update(f.values or [])
+            all_enum_values.update((f.aliases or {}).values())
 
-    # 第二轮：匹配姓名（从剩余文本开头提取，姓名通常在最前面）
-    # 姓名可能是2或3个汉字，需要判断边界
-    # 启发式：班型通常以 提/思/基/精/冲/培 等字开头
-    _CLASS_TYPE_STARTERS = set("提思基精冲培辅训奥新强优")
-    for field_def in config.fields:
-        if field_def.key == "name" and remaining:
-            # 尝试3字名和2字名，选择更合理的分割
-            name_3 = re.match(r'[\u4e00-\u9fff]{3}', remaining)
-            name_2 = re.match(r'[\u4e00-\u9fff]{2}', remaining)
-            chosen_name = ""
-            if name_3 and name_2:
-                # 第3个字是否像班型开头？
-                third_char = remaining[2]
-                if third_char in _CLASS_TYPE_STARTERS:
-                    chosen_name = name_2.group(0)  # 2字名更合理
-                else:
-                    chosen_name = name_3.group(0)  # 3字名更合理
-            elif name_3:
-                chosen_name = name_3.group(0)
-            elif name_2:
-                chosen_name = name_2.group(0)
-            if chosen_name:
-                matched["name"] = chosen_name
-                remaining = remaining[len(chosen_name):]
+    # ── 第一轮：按位置匹配 ──
+    for i, field_def in enumerate(fields):
+        if i < len(segments):
+            raw = segments[i]
+            if field_def.type == "enum":
+                # 枚举字段：值匹配 / 别名匹配 / 多字符组合匹配（如"春秋"、"寒春"）
+                alias_vals = set((field_def.aliases or {}).values())
+                if (raw in field_def.values
+                        or raw in alias_vals
+                        or (len(raw) > 1 and all(c in field_def.values or c in alias_vals for c in raw))):
+                    matched[field_def.key] = field_def.expand_value(raw)
+                    used.add(i)
+                # 不匹配 → 不填充，留给后面的智能分配
+            else:
+                # 文本字段：如果该值明显匹配某个枚举字段，则跳过，留给第二轮
+                if raw and raw not in all_enum_values:
+                    matched[field_def.key] = raw
+                    used.add(i)
+                elif raw and raw in all_enum_values:
+                    # 该文本字段因枚举值冲突被跳过
+                    skipped_by_enum.add(field_def.key)
 
-    # 第三轮：匹配无模式的字段（班型等，从剩余文本中提取）
-    for field_def in config.fields:
-        if not field_def.pattern and field_def.key not in matched:
-            if remaining.strip():
-                matched[field_def.key] = remaining.strip()
-                remaining = ""
+    # ── 第二轮：剩余段按类型特征智能分配 ──
+    for i, seg in enumerate(segments):
+        if i in used or not seg:
+            continue
 
-    # 处理特殊字段
-    phone = matched.get("phone", "")
+        assigned = False
+
+        # 手机号特征：1开头11位数字
+        if re.fullmatch(r"1\d{10}", seg):
+            for f in fields:
+                if f.key not in matched and f.key in ("phone", "手机", "电话"):
+                    matched[f.key] = seg
+                    used.add(i)
+                    assigned = True
+                    break
+
+        if assigned:
+            continue
+
+        # 日期特征：YYYY-MM-DD 或 YYYY/MM/DD，优先 date-type 字段
+        if re.fullmatch(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", seg):
+            for f in fields:
+                if f.key not in matched and f.type == "date":
+                    matched[f.key] = seg
+                    used.add(i)
+                    assigned = True
+                    break
+            if not assigned:
+                for f in fields:
+                    if f.key not in matched and "日期" in f.label:
+                        matched[f.key] = seg
+                        used.add(i)
+                        assigned = True
+                        break
+
+        if assigned:
+            continue
+
+        # 枚举值特征：检查是否匹配某个未填充的枚举字段的值
+        for f in fields:
+            if f.key not in matched and f.type == "enum":
+                alias_vals = set((f.aliases or {}).values())
+                if (seg in (f.values or [])
+                        or seg in alias_vals
+                        or (len(seg) > 1 and all(c in (f.values or []) or c in alias_vals for c in seg))):
+                    matched[f.key] = f.expand_value(seg)
+                    used.add(i)
+                    assigned = True
+                    break
+
+        if assigned:
+            continue
+
+        # 数字特征：纯数字或小数，优先匹配数值类字段
+        if re.fullmatch(r"\d+(\.\d+)?", seg):
+            for f in fields:
+                if f.key not in matched and f.type == "number":
+                    matched[f.key] = seg
+                    used.add(i)
+                    assigned = True
+                    break
+            if not assigned:
+                for f in fields:
+                    if f.key not in matched and f.type == "text":
+                        matched[f.key] = seg
+                        used.add(i)
+                        assigned = True
+                        break
+
+    # ── 第三轮：剩余文本段填入未匹配的文本字段 ──
+    # 优先填入未被跳过的文本字段，再填入被跳过的
+    available_text = [f for f in fields if f.key not in matched and f.type == "text" and f.key not in skipped_by_enum]
+    deferred_text = [f for f in fields if f.key not in matched and f.type == "text" and f.key in skipped_by_enum]
+    ordered_text_fields = available_text + deferred_text
+
+    for i, seg in enumerate(segments):
+        if i in used or not seg:
+            continue
+        for f in ordered_text_fields:
+            if f.key not in matched:
+                matched[f.key] = seg
+                used.add(i)
+                break
+
+    # 确保所有字段都有值（空字符串）
+    for f in fields:
+        if f.key not in matched:
+            matched[f.key] = ""
+
+    # 提取常用字段（兼容旧格式）
+    name = matched.get("name", matched.get("客户姓名", ""))
+    phone = matched.get("phone", matched.get("手机", matched.get("电话", "")))
     grade = _normalize_grade(matched.get("grade", ""))
-    name = matched.get("name", "")
-    season = matched.get("season", "")
-    subject = matched.get("subject", "")
-    class_type = matched.get("class_type", "")
-
-    # 如果没匹配到姓名，从剩余文本中提取
-    if not name:
-        name_match = CHINESE_NAME_PATTERN.search(remaining)
-        name = name_match.group(0) if name_match else ""
-
-    # 构建课程信息（兼容旧格式）
-    courses = []
-    if subject:
-        courses.append({
-            "subject": subject,
-            "stage": season,
-            "class_type": class_type,
-            "raw_text": f"{season}{subject}{class_type}".strip(),
-        })
 
     now = _iso_now()
     return {
@@ -394,12 +492,105 @@ def parse_personal_record(raw_text: str, recorded_at: Optional[str] = None, reco
         "phone": phone,
         "recorded_grade": grade,
         "recorded_at": recorded_at,
-        "courses": courses,
-        # 动态字段：存储所有配置中的字段值
-        "dynamic_fields": {k: v for k, v in matched.items() if k not in ("name", "phone", "grade")},
+        "courses": [],
+        "dynamic_fields": matched,
         "created_at": now,
         "updated_at": now,
-        "parse_status": "complete" if name and phone else "partial",
+        "parse_status": "complete" if name else "partial",
+    }
+
+
+def _parse_concatenated(raw_text: str, expanded_text: str, config, recorded_at: str, record_type: str) -> Dict:
+    """回退解析器：处理无逗号的连写格式（如教育领域的连写输入）。
+    
+    策略（针对 education 连写格式优化）：
+    1. 提取手机号（11位数字，最明确的模式）
+    2. 提取年级（X年级/初X/高X）
+    3. 提取科目（已知科目列表匹配）
+    4. 提取姓名（智能2/3字判断）
+    5. 从剩余文本中提取季节（连续季节字符序列）
+    6. 剩余归入 class_type
+    """
+    compact_text = _compact_text(expanded_text)
+    matched: Dict[str, str] = {}
+    remaining = compact_text
+
+    # ── 第一轮：提取手机号 ──
+    phone_match = re.search(r"1\d{10}", remaining)
+    if phone_match:
+        matched["phone"] = phone_match.group(0)
+        remaining = remaining[:phone_match.start()] + remaining[phone_match.end():]
+
+    # ── 第二轮：提取年级 ──
+    grade_match = re.search(r"(?:[1-6]年级|[一二三四五六]年级|初[一二三]|高[一二三])", remaining)
+    if grade_match:
+        matched["grade"] = grade_match.group(0)
+        remaining = remaining[:grade_match.start()] + remaining[grade_match.end():]
+
+    # ── 第三轮：提取科目（已知科目列表，最长匹配优先）──
+    if any(f.key == "subject" for f in config.fields):
+        subject_match = SUBJECT_PATTERN.search(remaining)
+        if subject_match:
+            matched["subject"] = subject_match.group(0)
+            remaining = remaining[:subject_match.start()] + remaining[subject_match.end():]
+
+    # ── 第四轮：提取姓名（智能 2/3 字判断）──
+    if remaining:
+        name_3 = re.match(r'[\u4e00-\u9fff]{3}', remaining)
+        name_2 = re.match(r'[\u4e00-\u9fff]{2}', remaining)
+        chosen_name = ""
+        _CLASS_TYPE_STARTERS = set("提思基精冲培辅训奥新强优")
+        if name_3 and name_2:
+            third_char = remaining[2]
+            if third_char in _CLASS_TYPE_STARTERS:
+                chosen_name = name_2.group(0)
+            else:
+                chosen_name = name_3.group(0)
+        elif name_3:
+            chosen_name = name_3.group(0)
+        elif name_2:
+            chosen_name = name_2.group(0)
+        if chosen_name:
+            matched["name"] = chosen_name
+            remaining = remaining[len(chosen_name):]
+
+    # ── 第五轮：提取季节（连续季节字符序列，1-4个）──
+    if remaining and any(f.key == "season" for f in config.fields):
+        season_match = re.match(r'[ABCD春夏秋冬寒]{1,4}', remaining)
+        if season_match:
+            matched["season"] = season_match.group(0)
+            remaining = remaining[season_match.end():]
+
+    # ── 第六轮：剩余文本归入 class_type ──
+    for field_def in config.fields:
+        if field_def.key not in matched and remaining.strip():
+            matched[field_def.key] = remaining.strip()
+            remaining = ""
+            break
+
+    # 确保所有字段都有值
+    for f in config.fields:
+        if f.key not in matched:
+            matched[f.key] = ""
+
+    name = matched.get("name", "")
+    phone = matched.get("phone", matched.get("手机", matched.get("电话", "")))
+    grade = _normalize_grade(matched.get("grade", ""))
+
+    now = _iso_now()
+    return {
+        "id": f"person_{uuid.uuid4().hex[:12]}",
+        "record_type": record_type,
+        "raw_text": raw_text.strip(),
+        "name": name,
+        "phone": phone,
+        "recorded_grade": grade,
+        "recorded_at": recorded_at,
+        "courses": [],
+        "dynamic_fields": matched,
+        "created_at": now,
+        "updated_at": now,
+        "parse_status": "complete" if name else "partial",
     }
 
 
@@ -631,84 +822,51 @@ class PersonalDataManager:
         self._save_records()
 
     def _search_blob(self, record: Dict, as_of: Optional[str] = None) -> str:
-        """配置驱动的搜索文本生成。根据 FormatConfig 动态生成搜索 blob。"""
+        """Config-driven search text generation."""
         config = get_format_config()
         parts = []
+        dynamic = record.get("dynamic_fields", {})
         for field_def in config.fields:
             if field_def.key == "name":
                 parts.append(record.get("name", ""))
             elif field_def.key == "phone":
                 parts.append(record.get("phone", ""))
-            elif field_def.key == "grade":
-                parts.append(record.get("recorded_grade", ""))
-                parts.append(compute_display_grade(record.get("recorded_grade", ""), record.get("recorded_at", ""), as_of))
-            elif field_def.key == "subject":
-                for course in record.get("courses", []):
-                    parts.append(course.get("subject", ""))
-            elif field_def.key == "stage" or field_def.key == "season":
-                for course in record.get("courses", []):
-                    parts.append(course.get("stage", ""))
-            elif field_def.key == "class_type":
-                for course in record.get("courses", []):
-                    parts.append(course.get("class_type", ""))
             else:
-                # 动态字段
-                dynamic = record.get("dynamic_fields", {})
+                # All other fields (including grade, subject, etc.) come from dynamic_fields
                 parts.append(dynamic.get(field_def.key, ""))
         parts.append(record.get("raw_text", ""))
         return " ".join(part for part in parts if part)
 
     def _search_score(self, query: str, record: Dict, as_of: Optional[str] = None) -> float:
-        """配置驱动的搜索评分。根据 FormatConfig 动态评分。"""
+        """Config-driven search scoring."""
         config = get_format_config()
         query_norm = _compact_text(query).lower()
         if not query_norm:
             return 0.0
 
         score = 0.0
-        blob_norm = _compact_text(self._search_blob(record, as_of)).lower()
+        dynamic = record.get("dynamic_fields", {})
 
-        # 按配置字段评分
+        # Score each configured field
         for field_def in config.fields:
             if field_def.key == "name":
-                name_norm = _compact_text(record.get("name", "")).lower()
-                if query_norm and query_norm in name_norm:
+                name_val = _compact_text(record.get("name", "")).lower()
+                if query_norm and query_norm in name_val:
                     score += 100
             elif field_def.key == "phone":
-                phone_norm = _compact_text(record.get("phone", "")).lower()
-                if query_norm and query_norm == phone_norm:
+                phone_val = _compact_text(record.get("phone", "")).lower()
+                if query_norm and query_norm == phone_val:
                     score += 95
-                elif query_norm and query_norm in phone_norm:
+                elif query_norm and query_norm in phone_val:
                     score += 80
-            elif field_def.key == "grade":
-                recorded_grade_norm = _compact_text(record.get("recorded_grade", "")).lower()
-                display_grade_norm = _compact_text(
-                    compute_display_grade(record.get("recorded_grade", ""), record.get("recorded_at", ""), as_of)
-                ).lower()
-                if query_norm and query_norm in recorded_grade_norm:
-                    score += 70
-                if query_norm and query_norm in display_grade_norm:
-                    score += 68
-            elif field_def.key == "subject":
-                for course in record.get("courses", []):
-                    if query_norm in _compact_text(course.get("subject", "")).lower():
-                        score += 85
-            elif field_def.key == "stage" or field_def.key == "season":
-                for course in record.get("courses", []):
-                    if query_norm in _compact_text(course.get("stage", "")).lower():
-                        score += 74
-            elif field_def.key == "class_type":
-                for course in record.get("courses", []):
-                    if query_norm in _compact_text(course.get("class_type", "")).lower():
-                        score += 72
             else:
-                # 动态字段
-                dynamic = record.get("dynamic_fields", {})
-                field_val = _compact_text(dynamic.get(field_def.key, "")).lower()
-                if query_norm and query_norm in field_val:
+                # All other fields from dynamic_fields
+                val = _compact_text(dynamic.get(field_def.key, "")).lower()
+                if query_norm and query_norm in val:
                     score += 60
 
-        # 通用 blob 匹配
+        # Generic blob match as fallback
+        blob_norm = _compact_text(self._search_blob(record, as_of)).lower()
         if query_norm and query_norm in blob_norm:
             score += 40
         return score
