@@ -313,16 +313,16 @@ class LoginWindow:
 class LocalMainWindow:
     """本地模式主窗口 - v1.2 托盘+快捷键版"""
     
-    def __init__(self, root, api_client, user_id):
+    def __init__(self, root, api_client, user_id, access_mode="free"):
         self.api_client = api_client
         self.preview_manager = api_client.preview_manager
         self.user_id = user_id
+        self.access_mode = access_mode
         
         reset_ttkbootstrap_style()
         self.root = root
         # 根据 access_mode 动态显示窗口标题
-        state = self.preview_manager._state if hasattr(self.preview_manager, '_state') else {}
-        _am = state.get('reply_access_mode', 'free')
+        _am = access_mode
         if _am in ('plus_monthly', 'plus_yearly'):
             _mode_label = "Plus专业版"
         elif _am in ('monthly', 'yearly'):
@@ -372,8 +372,7 @@ class LocalMainWindow:
         header_frame.columnconfigure(1, weight=1)
         
         # 根据 access_mode 动态显示状态
-        state = self.preview_manager._state if hasattr(self.preview_manager, '_state') else {}
-        access_mode = state.get('reply_access_mode', 'free')
+        access_mode = self.access_mode
         if access_mode in ('plus_monthly', 'plus_yearly'):
             mode_text = "Plus专业版"
         elif access_mode in ('monthly', 'yearly'):

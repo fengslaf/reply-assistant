@@ -401,13 +401,13 @@ def build_home_view_model(state: Dict[str, str], metrics: Dict[str, int], mode: 
     if reply_mode == "local_perpetual":
         reply_lines = [
             "状态：完整版（已解锁）",
-            f"样本：∞ / {reply_samples} 条",
+            f"样本：{reply_samples} / ∞ 条",
             "云端同步：不可用",
         ]
     elif reply_mode in {"monthly", "yearly", "plus_monthly", "plus_yearly"}:
         reply_lines = [
             "状态：完整版（已解锁）",
-            f"样本：∞ / {reply_samples} 条",
+            f"样本：{reply_samples} / ∞ 条",
             "云端同步：已启用",
         ]
     else:  # free
@@ -1734,9 +1734,7 @@ class ProductHomeWindow:
                 dialog.destroy()
                 self._logout_and_clear_online()
 
-            ttk.Button(button_row, text="刷新状态", command=refresh_online).pack(side=tk.LEFT)
-            ttk.Button(button_row, text="退出登录", command=logout_online).pack(side=tk.LEFT, padx=(8, 0))
-            ttk.Button(button_row, text="关闭", command=dialog.destroy).pack(side=tk.LEFT, padx=(8, 0))
+            ttk.Button(button_row, text="关闭", command=dialog.destroy).pack(side=tk.LEFT)
             render_from_state()
             refresh_online()
             refresh_wechat_status()
@@ -1833,7 +1831,7 @@ def run_app():
                     child.destroy()
                 root.update()  # 强制同步销毁
 
-                win = LocalMainWindow(root, api, user_id)
+                win = LocalMainWindow(root, api, user_id, access_mode=_effective_access_mode(self._state))
                 root.deiconify()  # 构建完成，显示窗口
                 action = win.show()
                 if action == "home":

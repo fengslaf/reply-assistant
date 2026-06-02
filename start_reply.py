@@ -16,7 +16,7 @@ def run_reply_app():
     import tkinter as tk
 
     # 从 start_gui 导入回复助手相关的类
-    from start_gui import ProductHomeWindow, LocalMainWindow
+    from start_gui import ProductHomeWindow, LocalMainWindow, _effective_access_mode, _load_home_state
     from preview_mode import PreviewAPIClient, PreviewModeManager
 
     preview_api_client = None
@@ -48,7 +48,7 @@ def run_reply_app():
                     child.destroy()
                 root.update()
 
-                win = LocalMainWindow(root, api, user_id)
+                win = LocalMainWindow(root, api, user_id, access_mode=_effective_access_mode(_load_home_state()))
                 root.deiconify()
                 action = win.show()
                 if action == "home":
