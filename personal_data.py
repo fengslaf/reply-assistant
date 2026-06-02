@@ -252,6 +252,22 @@ def reload_format_config() -> FormatConfig:
     return get_format_config()
 
 
+def get_format_config_line() -> str:
+    """获取当前格式配置的原始文本行"""
+    config = get_format_config()
+    return config.raw_line
+
+
+def save_format_config(format_line: str) -> FormatConfig:
+    """保存格式配置到文件并重新加载"""
+    global _FORMAT_CONFIG
+    config_path = Path(__file__).resolve().parent / "data" / "personal_data" / "format.txt"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(format_line.strip(), encoding="utf-8")
+    _FORMAT_CONFIG = None
+    return get_format_config()
+
+
 def get_personal_data_format_example() -> str:
     """根据当前解析规则生成数据格式示例。修改解析规则时自动同步。"""
     example_parts = []

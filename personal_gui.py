@@ -31,7 +31,10 @@ from gui_utils import (
     HelpWindow,
 )
 
-from personal_data import PersonalDataManager, parse_personal_record, get_personal_data_format_example
+from personal_data import (
+    PersonalDataManager, parse_personal_record, get_personal_data_format_example,
+    get_format_config_line, save_format_config,
+)
 
 
 PERSONAL_ICON_PATH = get_personal_icon_path()
@@ -55,10 +58,11 @@ class PersonalDataSettingsWindow:
             value="表格展示" if self.data_manager.get_display_mode() == "table" else "卡片展示"
         )
         self.hotkey_var = tk.StringVar(value=self.data_manager.get_hotkey())
+        self.format_line_var = tk.StringVar(value=get_format_config_line())
         self._setup_ui()
         apply_native_ttk_theme(self.win)
         apply_plain_ttk_palette(self.win)
-        fit_window_to_content(self.win, default_size=(620, 320))
+        fit_window_to_content(self.win, default_size=(620, 420))
 
     def _setup_ui(self):
         storage_frame = ttk.LabelFrame(self.win, text="数据存储", padding=10)
@@ -88,6 +92,13 @@ class PersonalDataSettingsWindow:
         ttk.Entry(hotkey_frame, textvariable=self.hotkey_var, width=22).pack(anchor=tk.W, pady=(4, 0))
         ttk.Label(hotkey_frame, text="建议格式：ctrl+shift+y", foreground="gray").pack(anchor=tk.W, pady=(4, 0))
 
+        format_frame = ttk.LabelFrame(self.win, text="数据解析格式", padding=10)
+        format_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        ttk.Label(format_frame, text="格式定义（中文逗号分隔，括号内为枚举选项）:").pack(anchor=tk.W)
+        ttk.Entry(format_frame, textvariable=self.format_line_var, width=60).pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(format_frame, text="示例：姓名，电话，年级，季节（ABCD），科目，班型", foreground="gray").pack(anchor=tk.W, pady=(4, 0))
+        ttk.Label(format_frame, text="修改后保存并重启生效。A=寒 B=春 C=暑 D=秋", foreground="gray").pack(anchor=tk.W)
+
         footer = ttk.Frame(self.win)
         footer.pack(fill=tk.X, padx=10, pady=(0, 12))
         ttk.Button(footer, text="保存并关闭", command=self._on_close).pack(side=tk.RIGHT)
@@ -107,6 +118,10 @@ class PersonalDataSettingsWindow:
     def _on_close(self):
         self.data_manager.set_display_mode("table" if self.display_mode_var.get() == "表格展示" else "card")
         self.data_manager.set_hotkey(self.hotkey_var.get())
+        # 保存解析格式配置
+        new_format_line = self.format_line_var.get().strip()
+        if new_format_line:
+            save_format_config(new_format_line)
         if self.on_save:
             self.on_save(
                 "table" if self.display_mode_var.get() == "表格展示" else "card",
